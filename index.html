@@ -74,6 +74,12 @@
         text-align: center;
         padding: 26px 12px 20px;
       }
+      .hero-tools {
+        margin-top: 12px;
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+      }
 
       .title {
         margin: 0;
@@ -202,6 +208,59 @@
         display: flex;
         justify-content: flex-end;
         margin-top: 12px;
+      }
+      .timelapse {
+        margin-top: 20px;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 12px;
+        background: color-mix(in srgb, var(--card) 88%, #000);
+      }
+      .timelapse-head {
+        display: flex;
+        justify-content: space-between;
+        color: var(--muted);
+        font-size: 0.9rem;
+        margin-bottom: 8px;
+      }
+      .timelapse input[type="range"] { width: 100%; }
+      .timelapse-preview { margin-top: 10px; border-radius: 12px; overflow: hidden; border: 1px solid var(--line); }
+      .tree-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 30;
+        background: rgba(6, 7, 12, 0.92);
+        backdrop-filter: blur(5px);
+        padding: 14px;
+      }
+      .tree-panel {
+        height: 100%;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        background: #0b0b11;
+        display: grid;
+        grid-template-rows: auto 1fr;
+      }
+      .tree-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--line);
+      }
+      .tree-grid {
+        padding: 12px;
+        overflow: auto;
+        column-count: 3;
+        column-gap: 10px;
+      }
+      .tree-node {
+        break-inside: avoid;
+        margin: 0 0 10px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        overflow: hidden;
+        background: #11111a;
       }
 
       .chapters {
@@ -414,6 +473,9 @@
           border-right: none;
           border-bottom: 1px solid var(--line);
         }
+        .hero-tools { justify-content: stretch; }
+        .hero-tools > * { flex: 1 1 auto; width: 100%; }
+        .tree-grid { column-count: 2; }
       }
     </style>
   </head>
@@ -446,11 +508,30 @@
         </div>
       </div>
     </section>
+    <section class="tree-overlay hidden" id="treeOverlay">
+      <div class="tree-panel">
+        <div class="tree-head">
+          <b>Fotograf Agaci</b>
+          <button id="closeTreeBtn" type="button">Kapat</button>
+        </div>
+        <div class="tree-grid" id="treeGrid"></div>
+      </div>
+    </section>
 
     <div class="container hidden" id="appRoot">
       <header class="hero">
         <h1 class="title" id="heroTitle">90 Gun, Hala Sen</h1>
         <p class="subtitle">3 ayimizi hatirlatan mini web hikayesi</p>
+        <div class="hero-tools">
+          <select id="viewFilter">
+            <option value="all">Filtre: Hepsi</option>
+            <option value="ikimiz">Sadece Ikimiz</option>
+            <option value="ben">Sadece Ben</option>
+            <option value="o">Sadece O</option>
+            <option value="belirsiz">Sadece Belirsiz</option>
+          </select>
+          <button class="ghost-btn" id="photoTreeBtn" type="button">Fotograf Agaci</button>
+        </div>
       </header>
 
       <section class="controls">
@@ -469,6 +550,9 @@
             <input id="partnerRefInput" type="file" accept="image/*" />
             <button id="autoTagBtn" type="button">Otomatik Etiketle</button>
           </div>
+          <div class="row">
+            <input id="extraMediaInput" type="file" accept="image/*,video/*" multiple />
+          </div>
           <p class="hint">
             Medyalar otomatik olarak <code>media/</code> klasorunden okunur. Ay bazinda gruplar ve her ayin ilk foto/video dosyasini ay kartina yerlestirir.
           </p>
@@ -482,6 +566,14 @@
 
       <section>
         <div class="chapters" id="chapters"></div>
+      </section>
+      <section class="timelapse">
+        <div class="timelapse-head">
+          <span>Timelapse</span>
+          <span id="timelapseLabel">0/0</span>
+        </div>
+        <input id="timelapseRange" type="range" min="0" max="0" value="0" />
+        <div class="timelapse-preview" id="timelapsePreview"></div>
       </section>
 
       <section class="summary-section">
@@ -517,6 +609,9 @@
       const recapTogetherCount = document.getElementById("recapTogetherCount");
       const recapCover = document.getElementById("recapCover");
       const closeRecapBtn = document.getElementById("closeRecapBtn");
+      const treeOverlay = document.getElementById("treeOverlay");
+      const treeGrid = document.getElementById("treeGrid");
+      const closeTreeBtn = document.getElementById("closeTreeBtn");
 
       async function sha256(text) {
         const bytes = new TextEncoder().encode(text);
@@ -550,7 +645,10 @@
 
       const buildBtn = document.getElementById("buildBtn");
       const autoTagBtn = document.getElementById("autoTagBtn");
+      const extraMediaInput = document.getElementById("extraMediaInput");
       const toggleControlsBtn = document.getElementById("toggleControlsBtn");
+      const viewFilter = document.getElementById("viewFilter");
+      const photoTreeBtn = document.getElementById("photoTreeBtn");
       const controlsBody = document.getElementById("controlsBody");
       const chaptersEl = document.getElementById("chapters");
       const timelineEl = document.getElementById("timeline");
@@ -564,7 +662,11 @@
       const autoTagStatus = document.getElementById("autoTagStatus");
       const loadMoreBtn = document.getElementById("loadMoreBtn");
       const monthSummaryEl = document.getElementById("monthSummary");
+      const timelapseRange = document.getElementById("timelapseRange");
+      const timelapseLabel = document.getElementById("timelapseLabel");
+      const timelapsePreview = document.getElementById("timelapsePreview");
       let mediaLibrary = Array.isArray(window.MEDIA_MANIFEST) ? window.MEDIA_MANIFEST : [];
+      let customMedia = [];
       const labelOverrides = new Map();
       const persistedLabels = new Map();
       const autoLabels = new Map();
@@ -577,8 +679,11 @@
       let timelineBatchSize = window.matchMedia("(max-width: 640px)").matches ? 30 : 80;
       let currentPartnerName = "O";
       let currentStart = new Date("2025-12-05T00:00:00");
+      let recapTimer = null;
+      let recapFrame = 0;
       const STORAGE_LABELS_KEY = "anniv_labels_v1";
       const STORAGE_CTRL_KEY = "anniv_controls_collapsed_v1";
+      const STORAGE_SETTINGS_KEY = "anniv_settings_v1";
 
       const monthPrompts = [
         "Baslangicta her sey biraz heyecandi.",
@@ -633,6 +738,30 @@
         img.loading = "lazy";
         img.decoding = "async";
         return img;
+      }
+
+      function saveSettings() {
+        try {
+          const s = {
+            title: nameInput.value || "",
+            partner: partnerNameInput.value || "",
+            start: startDateInput.value || "2025-12-05",
+            filter: viewFilter.value || "all",
+          };
+          localStorage.setItem(STORAGE_SETTINGS_KEY, JSON.stringify(s));
+        } catch {}
+      }
+
+      function loadSettings() {
+        try {
+          const raw = localStorage.getItem(STORAGE_SETTINGS_KEY);
+          if (!raw) return;
+          const s = JSON.parse(raw);
+          if (typeof s.title === "string") nameInput.value = s.title;
+          if (typeof s.partner === "string") partnerNameInput.value = s.partner;
+          if (typeof s.start === "string" && s.start) startDateInput.value = s.start;
+          if (typeof s.filter === "string" && s.filter) viewFilter.value = s.filter;
+        } catch {}
       }
 
       function inferText(item, index, chapterIndex = null, who = "ikimiz", partnerName = "O") {
@@ -1020,6 +1149,33 @@
         buildStory();
       }
 
+      function renderTimelapse(files) {
+        if (!files.length) {
+          timelapseRange.max = "0";
+          timelapseRange.value = "0";
+          timelapseLabel.textContent = "0/0";
+          timelapsePreview.innerHTML = "";
+          return;
+        }
+        timelapseRange.max = String(files.length - 1);
+        if (Number(timelapseRange.value) > files.length - 1) timelapseRange.value = "0";
+        const idx = Number(timelapseRange.value || 0);
+        timelapseLabel.textContent = `${idx + 1}/${files.length}`;
+        timelapsePreview.innerHTML = "";
+        timelapsePreview.appendChild(createMediaNode(files[idx]));
+      }
+
+      function renderPhotoTree(files) {
+        treeGrid.innerHTML = "";
+        const images = files.filter((f) => !isVideo(f));
+        images.forEach((item) => {
+          const node = document.createElement("article");
+          node.className = "tree-node";
+          node.appendChild(createMediaNode(item));
+          treeGrid.appendChild(node);
+        });
+      }
+
       function showRecap(files, monthGroups, dayDiff) {
         if (recapShown) return;
         recapShown = true;
@@ -1030,7 +1186,17 @@
         recapMonthCount.textContent = String(monthGroups.size);
         recapTogetherCount.textContent = String(togetherCount);
         recapCover.innerHTML = "";
-        if (files[0]) recapCover.appendChild(createMediaNode(files[0]));
+        const recapItems = files.slice(0, Math.min(8, files.length));
+        if (recapItems[0]) recapCover.appendChild(createMediaNode(recapItems[0]));
+        if (recapTimer) clearInterval(recapTimer);
+        if (recapItems.length > 1) {
+          recapFrame = 0;
+          recapTimer = setInterval(() => {
+            recapFrame = (recapFrame + 1) % recapItems.length;
+            recapCover.innerHTML = "";
+            recapCover.appendChild(createMediaNode(recapItems[recapFrame]));
+          }, 1400);
+        }
         recapOverlay.classList.remove("hidden");
       }
 
@@ -1045,11 +1211,12 @@
         currentStart = start;
         timelineBatchSize = window.matchMedia("(max-width: 640px)").matches ? 30 : 80;
 
-        const allFiles = [...mediaLibrary].sort((a, b) => a.mtime - b.mtime);
+        const allFiles = [...mediaLibrary, ...customMedia].sort((a, b) => a.mtime - b.mtime);
         const cleanFiles = allFiles.filter((f) => isSupportedMedia(f) && !String(f.name || "").startsWith("."));
         let files = cleanFiles.filter((f) => relationMonthIndex(start, new Date(f.mtime)) >= 0);
         // If date filtering removes everything, fall back to all media.
         if (!files.length && cleanFiles.length) files = cleanFiles;
+        if (viewFilter.value !== "all") files = files.filter((f) => effectiveLabel(f) === viewFilter.value);
         storyFiles = files;
 
         const relationshipName = nameInput.value.trim();
@@ -1089,6 +1256,8 @@
         }
 
         renderTimelineBatch(true);
+        renderTimelapse(files);
+        renderPhotoTree(files);
 
         const dayDiff = Math.max(1, Math.floor((now - start) / (1000 * 60 * 60 * 24)) + 1);
         document.getElementById("finalNote").textContent = `${dayDiff} gun oldu. Devami bizim elimizde.`;
@@ -1112,12 +1281,43 @@
         appInitialized = true;
         await ensureMediaLibrary();
         loadLabels();
+        loadSettings();
         const collapsed = localStorage.getItem(STORAGE_CTRL_KEY) === "1";
         setControlsCollapsed(collapsed);
         buildBtn.addEventListener("click", buildStory);
         autoTagBtn.addEventListener("click", autoTagMedia);
+        extraMediaInput.addEventListener("change", () => {
+          const list = [...extraMediaInput.files].map((file) => {
+            const ext = `.${(file.name.split(".").pop() || "").toLowerCase()}`;
+            return {
+              path: URL.createObjectURL(file),
+              name: file.name,
+              ext,
+              mtime: file.lastModified || Date.now(),
+              ctime: file.lastModified || Date.now(),
+            };
+          });
+          customMedia = [...customMedia, ...list];
+          buildStory();
+        });
         toggleControlsBtn.addEventListener("click", () => setControlsCollapsed(!controlsBody.classList.contains("hidden")));
-        closeRecapBtn.addEventListener("click", () => recapOverlay.classList.add("hidden"));
+        closeRecapBtn.addEventListener("click", () => {
+          recapOverlay.classList.add("hidden");
+          if (recapTimer) clearInterval(recapTimer);
+        });
+        viewFilter.addEventListener("change", () => {
+          saveSettings();
+          buildStory();
+        });
+        photoTreeBtn.addEventListener("click", () => treeOverlay.classList.remove("hidden"));
+        closeTreeBtn.addEventListener("click", () => treeOverlay.classList.add("hidden"));
+        timelapseRange.addEventListener("input", () => renderTimelapse(storyFiles));
+        [nameInput, partnerNameInput, startDateInput].forEach((el) =>
+          el.addEventListener("change", () => {
+            saveSettings();
+            buildStory();
+          }),
+        );
         loadMoreBtn.addEventListener("click", () => renderTimelineBatch(false));
         manifestStatus.textContent = mediaLibrary.length
           ? `${mediaLibrary.length} medya bulundu (media/).`
