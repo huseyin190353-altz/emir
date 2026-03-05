@@ -610,6 +610,11 @@
         return [".mp4", ".mov", ".webm"].includes(String(item.ext || "").toLowerCase());
       }
 
+      function isSupportedMedia(item) {
+        const ext = String(item.ext || "").toLowerCase();
+        return [".jpg", ".jpeg", ".png", ".webp", ".heic", ".mp4", ".mov", ".webm"].includes(ext);
+      }
+
       function createMediaNode(item) {
         const src = item.path;
         if (isVideo(item)) {
@@ -926,13 +931,17 @@
       }
 
       async function descriptorFromReference(file) {
-        const img = await loadImageFromFile(file);
-        const detections = await faceapi
-          .detectAllFaces(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.45 }))
-          .withFaceLandmarks()
-          .withFaceDescriptors();
-        const largest = pickLargestFace(detections);
-        return largest ? largest.descriptor : null;
+        try {
+          const img = await loadImageFromFile(file);
+          const detections = await faceapi
+            .detectAllFaces(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.45 }))
+            .withFaceLandmarks()
+            .withFaceDescriptors();
+          const largest = pickLargestFace(detections);
+          return largest ? largest.descriptor : null;
+        } catch {
+          return null;
+        }
       }
 
       async function autoTagMedia() {
@@ -945,6 +954,13 @@
 
         const ready = await ensureFaceModels();
         if (!ready) return;
+
+        const refExtA = (selfFile.name.split(".").pop() || "").toLowerCase();
+        const refExtB = (partnerFile.name.split(".").pop() || "").toLowerCase();
+        if (refExtA === "heic" || refExtB === "heic") {
+          autoTagStatus.textContent = "HEIC referans bazen okunmuyor. Referanslari JPG/PNG sec.";
+          return;
+        }
 
         autoTagStatus.textContent = "Referans yuzler okunuyor...";
         const [selfRef, partnerRef] = await Promise.all([descriptorFromReference(selfFile), descriptorFromReference(partnerFile)]);
@@ -1030,9 +1046,10 @@
         timelineBatchSize = window.matchMedia("(max-width: 640px)").matches ? 30 : 80;
 
         const allFiles = [...mediaLibrary].sort((a, b) => a.mtime - b.mtime);
-        let files = allFiles.filter((f) => relationMonthIndex(start, new Date(f.mtime)) >= 0);
+        const cleanFiles = allFiles.filter((f) => isSupportedMedia(f) && !String(f.name || "").startsWith("."));
+        let files = cleanFiles.filter((f) => relationMonthIndex(start, new Date(f.mtime)) >= 0);
         // If date filtering removes everything, fall back to all media.
-        if (!files.length && allFiles.length) files = allFiles;
+        if (!files.length && cleanFiles.length) files = cleanFiles;
         storyFiles = files;
 
         const relationshipName = nameInput.value.trim();
