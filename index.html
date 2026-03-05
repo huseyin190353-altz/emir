@@ -102,13 +102,26 @@
       }
 
       .controls {
+        position: fixed;
+        inset: 0;
+        z-index: 30;
+        display: grid;
+        place-items: center;
+        padding: 16px;
+        background: rgba(5, 7, 12, 0.84);
+        backdrop-filter: blur(4px);
+      }
+
+      .controls-card {
+        width: min(920px, 94vw);
+        max-height: 92dvh;
+        overflow: auto;
         display: grid;
         gap: 12px;
         background: color-mix(in srgb, var(--card) 85%, #000);
         border: 1px solid var(--line);
         border-radius: 16px;
         padding: 16px;
-        margin: 18px 0 28px;
       }
 
       .row {
@@ -312,7 +325,7 @@
         position: relative;
       }
       .wrapped-media {
-        min-height: 320px;
+        min-height: 260px;
         max-height: 64vh;
         background: #0c0d13;
       }
@@ -575,7 +588,7 @@
         <div class="hero-tools">
           <button class="ghost-btn tab-btn active" id="tabStoryBtn" type="button">Hikaye</button>
           <button class="ghost-btn tab-btn" id="tabMemoriesBtn" type="button">Tum Anilar</button>
-          <button class="ghost-btn" id="settingsBtn" type="button">Ayarlari Gizle</button>
+          <button class="ghost-btn" id="settingsBtn" type="button">Ayarlar</button>
           <select id="viewFilter">
             <option value="all">Filtre: Hepsi</option>
             <option value="ikimiz">Sadece Ikimiz</option>
@@ -586,8 +599,11 @@
         </div>
       </header>
 
-      <section class="controls story-section">
-        <div id="controlsBody">
+      <section class="controls hidden" id="controlsPanel">
+        <div class="controls-card" id="controlsCard">
+          <div class="row">
+            <button class="ghost-btn" id="closeSettingsBtn" type="button">Kapat</button>
+          </div>
           <div class="row">
             <input id="nameInput" type="text" placeholder="Baslik (or: Huseyin + ... )" />
             <input id="partnerNameInput" type="text" placeholder="Sevgilinin adi" />
@@ -614,7 +630,6 @@
       </section>
 
       <section class="summary-section story-section">
-        <h2>Aylar Ozeti</h2>
         <div class="wrapped" id="wrappedSummary">
           <div class="wrapped-top">
             <span id="wrappedCounter">1 / 3</span>
@@ -712,10 +727,12 @@
       const autoTagBtn = document.getElementById("autoTagBtn");
       const extraMediaInput = document.getElementById("extraMediaInput");
       const settingsBtn = document.getElementById("settingsBtn");
+      const closeSettingsBtn = document.getElementById("closeSettingsBtn");
       const tabStoryBtn = document.getElementById("tabStoryBtn");
       const tabMemoriesBtn = document.getElementById("tabMemoriesBtn");
       const viewFilter = document.getElementById("viewFilter");
-      const controlsBody = document.getElementById("controlsBody");
+      const controlsPanel = document.getElementById("controlsPanel");
+      const controlsCard = document.getElementById("controlsCard");
       const storySections = [...document.querySelectorAll(".story-section")];
       const memoriesSection = document.getElementById("memoriesSection");
       const chaptersEl = document.getElementById("chapters");
@@ -761,6 +778,7 @@
       let wrappedSlides = [];
       let wrappedIndex = 0;
       let wrappedTimer = null;
+      let wrappedVideoNode = null;
       let timelineSyncedFiles = [];
       const STORAGE_LABELS_KEY = "anniv_labels_v1";
       const STORAGE_CTRL_KEY = "anniv_controls_collapsed_v1";
@@ -857,7 +875,7 @@
         tabStoryBtn.classList.toggle("active", !memories);
         tabMemoriesBtn.classList.toggle("active", memories);
         if (memories) stopWrapped();
-        else if (wrappedSlides.length && !wrappedTimer) wrappedTimer = setInterval(() => gotoWrapped(wrappedIndex + 1), 3500);
+        else if (wrappedSlides.length && !wrappedTimer) renderWrapped();
       }
 
       function inferText(item, index, chapterIndex = null, who = "ikimiz", partnerName = "Emir") {
@@ -911,8 +929,8 @@
       }
 
       function setControlsCollapsed(collapsed) {
-        controlsBody.classList.toggle("hidden", collapsed);
-        settingsBtn.textContent = collapsed ? "Ayarlari Goster" : "Ayarlari Gizle";
+        controlsPanel.classList.toggle("hidden", collapsed);
+        settingsBtn.textContent = collapsed ? "Ayarlar" : "Ayarlari Kapat";
         try {
           localStorage.setItem(STORAGE_CTRL_KEY, collapsed ? "1" : "0");
         } catch {}
@@ -1092,8 +1110,12 @@
       }
 
       function stopWrapped() {
-        if (wrappedTimer) clearInterval(wrappedTimer);
+        if (wrappedTimer) clearTimeout(wrappedTimer);
         wrappedTimer = null;
+        if (wrappedVideoNode) {
+          wrappedVideoNode.pause();
+          wrappedVideoNode = null;
+        }
       }
 
       function renderWrapped() {
@@ -1109,7 +1131,23 @@
         wrappedTitle.textContent = `${s.monthNo}. Ay`;
         wrappedText.textContent = s.text;
         wrappedMedia.innerHTML = "";
-        if (s.media) wrappedMedia.appendChild(createMediaNode(s.media));
+        if (!s.media) return;
+        const node = createMediaNode(s.media);
+        wrappedMedia.appendChild(node);
+        stopWrapped();
+        if (node.tagName === "VIDEO") {
+          wrappedVideoNode = node;
+          node.controls = false;
+          node.muted = true;
+          node.autoplay = true;
+          node.loop = false;
+          node.play().catch(() => {});
+          node.addEventListener("ended", () => gotoWrapped(wrappedIndex + 1), { once: true });
+          wrappedTimer = setTimeout(() => gotoWrapped(wrappedIndex + 1), 12000);
+        } else {
+          wrappedVideoNode = null;
+          wrappedTimer = setTimeout(() => gotoWrapped(wrappedIndex + 1), 2200);
+        }
       }
 
       function gotoWrapped(idx) {
@@ -1120,30 +1158,17 @@
 
       function buildWrappedSummary(monthGroups, partnerName) {
         wrappedSlides = [];
-        const maxMonthIndex = Math.max(0, ...monthGroups.keys());
-        for (let month = 1; month <= maxMonthIndex + 1; month += 1) {
-          const items = monthGroups.get(month - 1) || [];
-          const ben = items.filter((x) => effectiveLabel(x) === "ben").length;
-          const o = items.filter((x) => effectiveLabel(x) === "o").length;
-          const ikimiz = items.filter((x) => effectiveLabel(x) === "ikimiz").length;
-          const media =
-            items.find((x) => effectiveLabel(x) === "ikimiz" && !isVideo(x)) ||
-            items.find((x) => effectiveLabel(x) === "ikimiz") ||
-            items.find((x) => !isVideo(x)) ||
-            items[0] ||
-            null;
+        monthGroups.forEach((item, idx) => {
+          const who = effectiveLabel(item);
+          const whoText = who === "ben" ? "Huseyin" : who === "o" ? partnerName : who === "ikimiz" ? "Ikimiz" : "Belirsiz";
           wrappedSlides.push({
-            monthNo: month,
-            media,
-            text: items.length
-              ? `${items.length} ani. Ikimiz: ${ikimiz}, Huseyin: ${ben}, ${partnerName}: ${o}.`
-              : "Bu ay icin henuz medya secilmedi.",
+            monthNo: idx + 1,
+            media: item,
+            text: `${formatDate(new Date(item.mtime))} - ${whoText}`,
           });
-        }
+        });
         wrappedIndex = 0;
         renderWrapped();
-        stopWrapped();
-        wrappedTimer = setInterval(() => gotoWrapped(wrappedIndex + 1), 3500);
       }
 
       function makeTimelineSummaryBlock(monthNo, items, monthStart, monthEnd, partnerName) {
@@ -1483,13 +1508,7 @@
           return;
         }
 
-        const wrappedGroups = new Map();
-        baseFiles.forEach((file) => {
-          const m = relationMonthIndex(start, new Date(file.mtime));
-          if (!wrappedGroups.has(m)) wrappedGroups.set(m, []);
-          wrappedGroups.get(m).push(file);
-        });
-        buildWrappedSummary(wrappedGroups, partnerName);
+        buildWrappedSummary(baseFiles, partnerName);
 
         const monthGroups = buildTimelineQueue(files, start);
         const monthFirstMap = new Map();
@@ -1582,7 +1601,11 @@
           }
           buildStory();
         });
-        settingsBtn.addEventListener("click", () => setControlsCollapsed(!controlsBody.classList.contains("hidden")));
+        settingsBtn.addEventListener("click", () => setControlsCollapsed(!controlsPanel.classList.contains("hidden")));
+        closeSettingsBtn.addEventListener("click", () => setControlsCollapsed(true));
+        controlsPanel.addEventListener("click", (e) => {
+          if (e.target === controlsPanel) setControlsCollapsed(true);
+        });
         tabStoryBtn.addEventListener("click", () => {
           setActiveTab("story");
           saveSettings();
