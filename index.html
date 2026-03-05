@@ -766,11 +766,13 @@
       let recapTimer = null;
       let recapFrame = 0;
       let recapItems = [];
+      let recapSlideMeta = [];
       let recapVideoNode = null;
       let pendingDeleteItem = null;
       let wrappedSlides = [];
       let wrappedIndex = 0;
       let wrappedTimer = null;
+      let timelineSyncedFiles = [];
       const STORAGE_LABELS_KEY = "anniv_labels_v1";
       const STORAGE_CTRL_KEY = "anniv_controls_collapsed_v1";
       const STORAGE_SETTINGS_KEY = "anniv_settings_v1";
@@ -1378,6 +1380,7 @@
           timelapseRange.value = "0";
           timelapseLabel.textContent = "0/0";
           timelapsePreview.innerHTML = "";
+          timelineEl.innerHTML = '<div class="empty">Zaman cizgisi medya bulununca olusur.</div>';
           return;
         }
         timelapseRange.max = String(files.length - 1);
@@ -1386,6 +1389,16 @@
         timelapseLabel.textContent = `${idx + 1}/${files.length}`;
         timelapsePreview.innerHTML = "";
         timelapsePreview.appendChild(createMediaNode(files[idx]));
+        renderTimelineFromTimelapse(idx);
+      }
+
+      function renderTimelineFromTimelapse(idx) {
+        timelineEl.innerHTML = "";
+        if (!timelineSyncedFiles.length) return;
+        const current = timelineSyncedFiles[idx];
+        if (!current) return;
+        const monthNo = relationMonthIndex(currentStart, new Date(current.mtime)) + 1;
+        timelineEl.appendChild(makeTimelineItem(current, idx, monthNo, currentPartnerName));
       }
 
       function renderAllMemories(files) {
@@ -1419,13 +1432,16 @@
         if (recapShown) return;
         recapShown = true;
         const togetherCount = files.filter((f) => effectiveLabel(f) === "ikimiz").length;
-        recapTitle.textContent = `${dayDiff} gunde biriken anlarinizin ozetini goruyorsun.`;
+        recapTitle.textContent = `Ilk 3 Ay Wrapped`;
         recapMediaCount.textContent = String(files.length);
         recapDayCount.textContent = String(dayDiff);
-        recapMonthCount.textContent = String(monthGroups.size);
+        recapMonthCount.textContent = "3";
         recapTogetherCount.textContent = String(togetherCount);
         recapCover.innerHTML = "";
-        recapItems = files.slice(0, Math.min(8, files.length));
+        recapSlideMeta = wrappedSlides
+          .map((s) => ({ media: s.media, title: `${s.monthNo}. Ay`, text: s.text }))
+          .filter((s) => Boolean(s.media));
+        recapItems = recapSlideMeta.map((s) => s.media);
         recapFrame = 0;
         playRecapFrame();
         recapOverlay.classList.remove("hidden");
@@ -1444,6 +1460,9 @@
         stopRecapPlayback();
         if (!recapItems.length) return;
         const item = recapItems[recapFrame];
+        if (recapSlideMeta[recapFrame]) {
+          recapTitle.textContent = `${recapSlideMeta[recapFrame].title} - ${recapSlideMeta[recapFrame].text}`;
+        }
         recapCover.innerHTML = "";
         const node = createMediaNode(item);
         recapCover.appendChild(node);
@@ -1492,6 +1511,7 @@
         if (!files.length) {
           storyFiles = [];
           timelineQueue = [];
+          timelineSyncedFiles = [];
           chaptersEl.innerHTML = '<div class="empty">media/ klasorunde uygun medya bulunamadi.</div>';
           timelineEl.innerHTML = '<div class="empty">Zaman cizgisi medya bulununca olusur.</div>';
           loadMoreBtn.style.display = "none";
@@ -1524,7 +1544,8 @@
           fillWithEmptyCards(0, currentMonthIdx);
         }
 
-        renderTimelineBatch(true);
+        timelineSyncedFiles = files;
+        loadMoreBtn.style.display = "none";
         renderTimelapse(files);
         renderAllMemories(cleanFiles);
 
@@ -1634,7 +1655,10 @@
           saveSettings();
           buildStory();
         });
-        timelapseRange.addEventListener("input", () => renderTimelapse(storyFiles));
+        timelapseRange.addEventListener("input", () => {
+          renderTimelapse(storyFiles);
+          saveSettings();
+        });
         [nameInput, partnerNameInput, startDateInput].forEach((el) =>
           el.addEventListener("change", () => {
             saveSettings();
