@@ -209,8 +209,8 @@
         justify-content: flex-end;
         margin-top: 12px;
       }
-      .timelapse {
-        margin-top: 20px;
+      .timeline-bar {
+        margin: 0 0 12px;
         border: 1px solid var(--line);
         border-radius: 14px;
         padding: 12px;
@@ -223,8 +223,7 @@
         font-size: 0.9rem;
         margin-bottom: 8px;
       }
-      .timelapse input[type="range"] { width: 100%; }
-      .timelapse-preview { margin-top: 10px; border-radius: 12px; overflow: hidden; border: 1px solid var(--line); }
+      .timeline-bar input[type="range"] { width: 100%; }
       .memories {
         margin-top: 22px;
       }
@@ -617,22 +616,6 @@
         </div>
       </section>
 
-      <section class="story-section">
-        <div class="chapters" id="chapters"></div>
-      </section>
-      <section class="timelapse story-section">
-        <div class="timelapse-head">
-          <span>Timelapse</span>
-          <span id="timelapseLabel">0/0</span>
-        </div>
-        <input id="timelapseRange" type="range" min="0" max="0" value="0" />
-        <div class="timelapse-preview" id="timelapsePreview"></div>
-      </section>
-      <section class="memories hidden" id="memoriesSection">
-        <h2>Tum Anilar</h2>
-        <div class="memories-grid" id="allMemories"></div>
-      </section>
-
       <section class="summary-section story-section">
         <h2>Ilk 3 Ay Ozeti</h2>
         <div class="wrapped" id="wrappedSummary">
@@ -653,8 +636,23 @@
         </div>
       </section>
 
+      <section class="story-section">
+        <div class="chapters" id="chapters"></div>
+      </section>
+      <section class="memories hidden" id="memoriesSection">
+        <h2>Tum Anilar</h2>
+        <div class="memories-grid" id="allMemories"></div>
+      </section>
+
       <section class="timeline story-section">
         <h2>Zaman Cizgimiz</h2>
+        <div class="timeline-bar">
+          <div class="timelapse-head">
+            <span>Timelapse</span>
+            <span id="timelapseLabel">0/0</span>
+          </div>
+          <input id="timelapseRange" type="range" min="0" max="0" value="0" />
+        </div>
         <div class="timeline-list" id="timeline"></div>
         <div class="timeline-actions">
           <button class="ghost-btn" id="loadMoreBtn" type="button">Daha Fazla Goster</button>
@@ -747,7 +745,6 @@
       const wrappedNextBtn = document.getElementById("wrappedNextBtn");
       const timelapseRange = document.getElementById("timelapseRange");
       const timelapseLabel = document.getElementById("timelapseLabel");
-      const timelapsePreview = document.getElementById("timelapsePreview");
       let mediaLibrary = Array.isArray(window.MEDIA_MANIFEST) ? window.MEDIA_MANIFEST : [];
       let customMedia = [];
       const labelOverrides = new Map();
@@ -1379,7 +1376,6 @@
           timelapseRange.max = "0";
           timelapseRange.value = "0";
           timelapseLabel.textContent = "0/0";
-          timelapsePreview.innerHTML = "";
           timelineEl.innerHTML = '<div class="empty">Zaman cizgisi medya bulununca olusur.</div>';
           return;
         }
@@ -1387,8 +1383,6 @@
         if (Number(timelapseRange.value) > files.length - 1) timelapseRange.value = "0";
         const idx = Number(timelapseRange.value || 0);
         timelapseLabel.textContent = `${idx + 1}/${files.length}`;
-        timelapsePreview.innerHTML = "";
-        timelapsePreview.appendChild(createMediaNode(files[idx]));
         renderTimelineFromTimelapse(idx);
       }
 
@@ -1499,16 +1493,17 @@
         const cleanFiles = allFiles
           .filter((f) => isSupportedMedia(f) && !String(f.name || "").startsWith("."))
           .filter((f) => !deletedMediaIds.has(mediaId(f)));
-        let files = cleanFiles.filter((f) => relationMonthIndex(start, new Date(f.mtime)) >= 0);
+        let baseFiles = cleanFiles.filter((f) => relationMonthIndex(start, new Date(f.mtime)) >= 0);
         // If date filtering removes everything, fall back to all media.
-        if (!files.length && cleanFiles.length) files = cleanFiles;
-        if (viewFilter.value !== "all") files = files.filter((f) => effectiveLabel(f) === viewFilter.value);
+        if (!baseFiles.length && cleanFiles.length) baseFiles = cleanFiles;
+        let files = baseFiles;
+        if (viewFilter.value !== "all") files = baseFiles.filter((f) => effectiveLabel(f) === viewFilter.value);
         storyFiles = files;
 
         const relationshipName = nameInput.value.trim();
         heroTitle.textContent = relationshipName || "90 Gun, Hala Sen";
 
-        if (!files.length) {
+        if (!baseFiles.length) {
           storyFiles = [];
           timelineQueue = [];
           timelineSyncedFiles = [];
@@ -1518,6 +1513,14 @@
           return;
         }
 
+        const wrappedGroups = new Map();
+        baseFiles.forEach((file) => {
+          const m = relationMonthIndex(start, new Date(file.mtime));
+          if (!wrappedGroups.has(m)) wrappedGroups.set(m, []);
+          wrappedGroups.get(m).push(file);
+        });
+        buildWrappedSummary(wrappedGroups, partnerName);
+
         const monthGroups = buildTimelineQueue(files, start);
         const monthFirstMap = new Map();
         monthGroups.forEach((items, monthIdx) => {
@@ -1526,7 +1529,6 @@
           const photoAny = items.find((x) => !isVideo(x));
           monthFirstMap.set(monthIdx, togetherPhoto || togetherAny || photoAny || items[0]);
         });
-        buildWrappedSummary(monthGroups, partnerName);
 
         const now = new Date();
         const currentMonthIdx = Math.max(0, relationMonthIndex(start, now));
