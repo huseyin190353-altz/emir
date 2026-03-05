@@ -885,9 +885,10 @@
         currentStart = start;
         timelineBatchSize = window.matchMedia("(max-width: 640px)").matches ? 30 : 80;
 
-        const files = [...mediaLibrary]
-          .sort((a, b) => a.mtime - b.mtime)
-          .filter((f) => relationMonthIndex(start, new Date(f.mtime)) >= 0);
+        const allFiles = [...mediaLibrary].sort((a, b) => a.mtime - b.mtime);
+        let files = allFiles.filter((f) => relationMonthIndex(start, new Date(f.mtime)) >= 0);
+        // If date filtering removes everything, fall back to all media.
+        if (!files.length && allFiles.length) files = allFiles;
         storyFiles = files;
 
         const relationshipName = nameInput.value.trim();
