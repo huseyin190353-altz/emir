@@ -142,6 +142,68 @@
         font-size: 0.86rem;
       }
 
+      .panel-toggle {
+        margin-top: 8px;
+      }
+
+      .recap-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(5, 6, 10, 0.88);
+        backdrop-filter: blur(6px);
+        z-index: 20;
+        display: grid;
+        place-items: center;
+        padding: 16px;
+      }
+
+      .recap-card {
+        width: min(760px, 94vw);
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: linear-gradient(160deg, #171722 0%, #0d0d14 100%);
+        padding: 16px;
+      }
+
+      .recap-card h2 {
+        margin: 0 0 8px;
+      }
+
+      .recap-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+        gap: 10px;
+        margin: 10px 0 14px;
+      }
+
+      .recap-stat {
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 10px;
+        background: rgba(255, 255, 255, 0.02);
+      }
+
+      .recap-stat b {
+        display: block;
+        font-size: 1.2rem;
+      }
+
+      .recap-cover {
+        border-radius: 12px;
+        overflow: hidden;
+        border: 1px solid var(--line);
+      }
+
+      .recap-cover .media {
+        aspect-ratio: 16 / 7;
+      }
+
+      .recap-actions {
+        display: flex;
+        justify-content: flex-end;
+        margin-top: 12px;
+      }
+
       .chapters {
         display: grid;
         gap: 14px;
@@ -368,6 +430,23 @@
       </div>
     </section>
 
+    <section class="recap-overlay hidden" id="recapOverlay">
+      <div class="recap-card">
+        <h2>Hikaye Ozeti</h2>
+        <p class="subtitle" id="recapTitle">Bu bolumde kisa bir ozet goreceksin.</p>
+        <div class="recap-grid">
+          <div class="recap-stat"><b id="recapMediaCount">0</b>Medya</div>
+          <div class="recap-stat"><b id="recapDayCount">0</b>Gun</div>
+          <div class="recap-stat"><b id="recapMonthCount">0</b>Aylik bolum</div>
+          <div class="recap-stat"><b id="recapTogetherCount">0</b>Ikiniz etiketi</div>
+        </div>
+        <div class="recap-cover" id="recapCover"></div>
+        <div class="recap-actions">
+          <button id="closeRecapBtn" type="button">Hikayeye Gir</button>
+        </div>
+      </div>
+    </section>
+
     <div class="container hidden" id="appRoot">
       <header class="hero">
         <h1 class="title" id="heroTitle">90 Gun, Hala Sen</h1>
@@ -375,25 +454,30 @@
       </header>
 
       <section class="controls">
-        <div class="row">
-          <input id="nameInput" type="text" placeholder="Baslik (or: Huseyin + ... )" />
-          <input id="partnerNameInput" type="text" placeholder="Sevgilinin adi" />
-          <input id="startDateInput" type="date" value="2025-12-05" />
-          <button id="buildBtn" type="button">Hikayeyi Olustur</button>
+        <div class="row panel-toggle">
+          <button class="ghost-btn" id="toggleControlsBtn" type="button">Ayarlari Gizle</button>
         </div>
-        <div class="row">
-          <input id="selfRefInput" type="file" accept="image/*" />
-          <input id="partnerRefInput" type="file" accept="image/*" />
-          <button id="autoTagBtn" type="button">Otomatik Etiketle</button>
+        <div id="controlsBody">
+          <div class="row">
+            <input id="nameInput" type="text" placeholder="Baslik (or: Huseyin + ... )" />
+            <input id="partnerNameInput" type="text" placeholder="Sevgilinin adi" />
+            <input id="startDateInput" type="date" value="2025-12-05" />
+            <button id="buildBtn" type="button">Hikayeyi Olustur</button>
+          </div>
+          <div class="row">
+            <input id="selfRefInput" type="file" accept="image/*" />
+            <input id="partnerRefInput" type="file" accept="image/*" />
+            <button id="autoTagBtn" type="button">Otomatik Etiketle</button>
+          </div>
+          <p class="hint">
+            Medyalar otomatik olarak <code>media/</code> klasorunden okunur. Ay bazinda gruplar ve her ayin ilk foto/video dosyasini ay kartina yerlestirir.
+          </p>
+          <p class="hint">
+            Referanslara birer net yuz fotografi sec: solda sen, sagda sevgilin. Sonra Otomatik Etiketle.
+          </p>
+          <p class="hint" id="manifestStatus">Medya listesi yukleniyor...</p>
+          <p class="status" id="autoTagStatus">Otomatik etiketleme hazir.</p>
         </div>
-        <p class="hint">
-          Medyalar otomatik olarak <code>media/</code> klasorunden okunur. Ay bazinda gruplar ve her ayin ilk foto/video dosyasini ay kartina yerlestirir.
-        </p>
-        <p class="hint">
-          Referanslara birer net yuz fotografi sec: solda sen, sagda sevgilin. Sonra Otomatik Etiketle.
-        </p>
-        <p class="hint" id="manifestStatus">Medya listesi yukleniyor...</p>
-        <p class="status" id="autoTagStatus">Otomatik etiketleme hazir.</p>
       </section>
 
       <section>
@@ -425,6 +509,14 @@
       const passwordInput = document.getElementById("passwordInput");
       const lockError = document.getElementById("lockError");
       const appRoot = document.getElementById("appRoot");
+      const recapOverlay = document.getElementById("recapOverlay");
+      const recapTitle = document.getElementById("recapTitle");
+      const recapMediaCount = document.getElementById("recapMediaCount");
+      const recapDayCount = document.getElementById("recapDayCount");
+      const recapMonthCount = document.getElementById("recapMonthCount");
+      const recapTogetherCount = document.getElementById("recapTogetherCount");
+      const recapCover = document.getElementById("recapCover");
+      const closeRecapBtn = document.getElementById("closeRecapBtn");
 
       async function sha256(text) {
         const bytes = new TextEncoder().encode(text);
@@ -458,6 +550,8 @@
 
       const buildBtn = document.getElementById("buildBtn");
       const autoTagBtn = document.getElementById("autoTagBtn");
+      const toggleControlsBtn = document.getElementById("toggleControlsBtn");
+      const controlsBody = document.getElementById("controlsBody");
       const chaptersEl = document.getElementById("chapters");
       const timelineEl = document.getElementById("timeline");
       const nameInput = document.getElementById("nameInput");
@@ -472,15 +566,19 @@
       const monthSummaryEl = document.getElementById("monthSummary");
       let mediaLibrary = Array.isArray(window.MEDIA_MANIFEST) ? window.MEDIA_MANIFEST : [];
       const labelOverrides = new Map();
+      const persistedLabels = new Map();
       const autoLabels = new Map();
       let faceModelsLoaded = false;
       let appInitialized = false;
+      let recapShown = false;
       let storyFiles = [];
       let timelineQueue = [];
       let timelineRenderedCount = 0;
       let timelineBatchSize = window.matchMedia("(max-width: 640px)").matches ? 30 : 80;
       let currentPartnerName = "O";
       let currentStart = new Date("2025-12-05T00:00:00");
+      const STORAGE_LABELS_KEY = "anniv_labels_v1";
+      const STORAGE_CTRL_KEY = "anniv_controls_collapsed_v1";
 
       const monthPrompts = [
         "Baslangicta her sey biraz heyecandi.",
@@ -576,8 +674,32 @@
         return wrapper;
       }
 
+      function saveLabels() {
+        try {
+          const obj = Object.fromEntries(persistedLabels.entries());
+          localStorage.setItem(STORAGE_LABELS_KEY, JSON.stringify(obj));
+        } catch {}
+      }
+
+      function loadLabels() {
+        try {
+          const raw = localStorage.getItem(STORAGE_LABELS_KEY);
+          if (!raw) return;
+          const obj = JSON.parse(raw);
+          Object.entries(obj).forEach(([k, v]) => persistedLabels.set(k, v));
+        } catch {}
+      }
+
+      function setControlsCollapsed(collapsed) {
+        controlsBody.classList.toggle("hidden", collapsed);
+        toggleControlsBtn.textContent = collapsed ? "Ayarlari Goster" : "Ayarlari Gizle";
+        try {
+          localStorage.setItem(STORAGE_CTRL_KEY, collapsed ? "1" : "0");
+        } catch {}
+      }
+
       function effectiveLabel(item) {
-        return labelOverrides.get(item.path) || autoLabels.get(item.path) || "ikimiz";
+        return labelOverrides.get(item.path) || persistedLabels.get(item.path) || autoLabels.get(item.path) || "ikimiz";
       }
 
       function makeChapterCard(item, chapterIndex, monthNo, monthRange, partnerName) {
@@ -599,6 +721,8 @@
 
         const whoSelector = makeWhoSelector(initialWho, (who) => {
           labelOverrides.set(item.path, who);
+          persistedLabels.set(item.path, who);
+          saveLabels();
           text.textContent = inferText(item, chapterIndex, chapterIndex, who, partnerName);
         });
 
@@ -626,6 +750,8 @@
 
         const whoSelector = makeWhoSelector(initialWho, (who) => {
           labelOverrides.set(item.path, who);
+          persistedLabels.set(item.path, who);
+          saveLabels();
           text.textContent = inferText(item, index, null, who, partnerName);
         });
 
@@ -864,14 +990,32 @@
             else if (hasSelf) autoLabels.set(media.path, "ben");
             else if (hasPartner) autoLabels.set(media.path, "o");
             else autoLabels.set(media.path, "belirsiz");
+            persistedLabels.set(media.path, autoLabels.get(media.path));
           } catch (err) {
             autoLabels.set(media.path, "belirsiz");
+            persistedLabels.set(media.path, "belirsiz");
           }
           if (done % 12 === 0) await new Promise((resolve) => setTimeout(resolve, 0));
         }
 
+        saveLabels();
+        setControlsCollapsed(true);
         autoTagStatus.textContent = `Otomatik etiketleme tamamlandi: ${images.length} gorsel.`;
         buildStory();
+      }
+
+      function showRecap(files, monthGroups, dayDiff) {
+        if (recapShown) return;
+        recapShown = true;
+        const togetherCount = files.filter((f) => effectiveLabel(f) === "ikimiz").length;
+        recapTitle.textContent = `${dayDiff} gunde biriken anlarinizin ozetini goruyorsun.`;
+        recapMediaCount.textContent = String(files.length);
+        recapDayCount.textContent = String(dayDiff);
+        recapMonthCount.textContent = String(monthGroups.size);
+        recapTogetherCount.textContent = String(togetherCount);
+        recapCover.innerHTML = "";
+        if (files[0]) recapCover.appendChild(createMediaNode(files[0]));
+        recapOverlay.classList.remove("hidden");
       }
 
       function buildStory() {
@@ -931,6 +1075,7 @@
 
         const dayDiff = Math.max(1, Math.floor((now - start) / (1000 * 60 * 60 * 24)) + 1);
         document.getElementById("finalNote").textContent = `${dayDiff} gun oldu. Devami bizim elimizde.`;
+        showRecap(files, monthGroups, dayDiff);
       }
 
       async function ensureMediaLibrary() {
@@ -949,8 +1094,13 @@
         if (appInitialized) return;
         appInitialized = true;
         await ensureMediaLibrary();
+        loadLabels();
+        const collapsed = localStorage.getItem(STORAGE_CTRL_KEY) === "1";
+        setControlsCollapsed(collapsed);
         buildBtn.addEventListener("click", buildStory);
         autoTagBtn.addEventListener("click", autoTagMedia);
+        toggleControlsBtn.addEventListener("click", () => setControlsCollapsed(!controlsBody.classList.contains("hidden")));
+        closeRecapBtn.addEventListener("click", () => recapOverlay.classList.add("hidden"));
         loadMoreBtn.addEventListener("click", () => renderTimelineBatch(false));
         manifestStatus.textContent = mediaLibrary.length
           ? `${mediaLibrary.length} medya bulundu (media/).`
