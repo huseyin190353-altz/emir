@@ -221,57 +221,35 @@
       }
       .timelapse input[type="range"] { width: 100%; }
       .timelapse-preview { margin-top: 10px; border-radius: 12px; overflow: hidden; border: 1px solid var(--line); }
-      .tree-overlay {
-        position: fixed;
-        inset: 0;
-        z-index: 30;
-        background: rgba(6, 7, 12, 0.92);
-        backdrop-filter: blur(5px);
-        padding: 14px;
+      .memories {
+        margin-top: 22px;
       }
-      .tree-panel {
-        height: 100%;
-        border: 1px solid var(--line);
-        border-radius: 14px;
-        background: #0b0b11;
+      .memories h2 {
+        margin: 0 0 10px;
+        font-size: 1.2rem;
+      }
+      .memories-grid {
         display: grid;
-        grid-template-rows: auto 1fr;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 10px;
       }
-      .tree-head {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 10px 12px;
-        border-bottom: 1px solid var(--line);
-      }
-      .tree-actions {
-        display: flex;
-        gap: 8px;
-      }
-      .tree-stage {
-        position: relative;
-        overflow: hidden;
-        background: radial-gradient(circle at 50% 45%, #15131d 0%, #090a0f 55%, #05060a 100%);
-      }
-      .tree-canvas {
-        width: 100%;
-        height: 100%;
-        display: block;
-        cursor: grab;
-      }
-      .tree-canvas.dragging {
-        cursor: grabbing;
-      }
-      .tree-hint {
-        position: absolute;
-        left: 10px;
-        bottom: 10px;
-        color: #b4b8cc;
-        font-size: 0.82rem;
-        background: rgba(10, 11, 18, 0.55);
+      .memory-card {
         border: 1px solid var(--line);
-        border-radius: 10px;
-        padding: 6px 8px;
+        border-radius: 12px;
+        overflow: hidden;
+        background: #13131a;
+      }
+      .memory-meta {
+        padding: 8px 10px 10px;
+      }
+      .memory-meta p {
+        margin: 0 0 8px;
+        color: var(--muted);
+        font-size: 0.82rem;
+      }
+      .danger-btn {
+        width: 100%;
+        background: #b53a53;
       }
 
       .chapters {
@@ -487,7 +465,6 @@
         }
         .hero-tools { justify-content: stretch; }
         .hero-tools > * { flex: 1 1 auto; width: 100%; }
-        .tree-hint { font-size: 0.76rem; }
       }
     </style>
   </head>
@@ -574,6 +551,10 @@
         <input id="timelapseRange" type="range" min="0" max="0" value="0" />
         <div class="timelapse-preview" id="timelapsePreview"></div>
       </section>
+      <section class="memories">
+        <h2>Tum Anilar</h2>
+        <div class="memories-grid" id="allMemories"></div>
+      </section>
 
       <section class="summary-section">
         <h2>Ilk 3 Ay Ozeti</h2>
@@ -656,6 +637,7 @@
       const manifestStatus = document.getElementById("manifestStatus");
       const autoTagStatus = document.getElementById("autoTagStatus");
       const loadMoreBtn = document.getElementById("loadMoreBtn");
+      const allMemoriesEl = document.getElementById("allMemories");
       const monthSummaryEl = document.getElementById("monthSummary");
       const timelapseRange = document.getElementById("timelapseRange");
       const timelapseLabel = document.getElementById("timelapseLabel");
@@ -664,6 +646,7 @@
       let customMedia = [];
       const labelOverrides = new Map();
       const persistedLabels = new Map();
+      const deletedMediaIds = new Set();
       const autoLabels = new Map();
       let faceModelsLoaded = false;
       let appInitialized = false;
@@ -678,20 +661,10 @@
       let recapFrame = 0;
       let recapItems = [];
       let recapVideoNode = null;
-      let treeNeedsRender = false;
       const STORAGE_LABELS_KEY = "anniv_labels_v1";
       const STORAGE_CTRL_KEY = "anniv_controls_collapsed_v1";
       const STORAGE_SETTINGS_KEY = "anniv_settings_v1";
-      const treeState = {
-        points: [],
-        scale: 0.8,
-        offsetX: 0,
-        offsetY: 0,
-        dragging: false,
-        dragX: 0,
-        dragY: 0,
-      };
-      const treeImageCache = new Map();
+      const STORAGE_DELETED_KEY = "anniv_deleted_media_v1";
 
       const monthPrompts = [
         "Baslangicta her sey biraz heyecandi.",
@@ -846,145 +819,28 @@
         return `${name}::${size}`;
       }
 
+      function mediaId(item) {
+        return `${String(item.name || "").toLowerCase()}::${Math.round(Number(item.mtime || 0))}`;
+      }
+
       function mediaExists(item) {
         const key = mediaKey(item);
         const all = [...mediaLibrary, ...customMedia];
         return all.some((m) => mediaKey(m) === key || String(m.name || "").toLowerCase() === String(item.name || "").toLowerCase());
       }
 
-      function hashNum(text) {
-        let h = 2166136261;
-        for (let i = 0; i < text.length; i += 1) {
-          h ^= text.charCodeAt(i);
-          h += (h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24);
-        }
-        return Math.abs(h >>> 0);
+      function saveDeletedMedia() {
+        try {
+          localStorage.setItem(STORAGE_DELETED_KEY, JSON.stringify([...deletedMediaIds]));
+        } catch {}
       }
 
-      function requestTreeRender() {
-        if (treeNeedsRender) return;
-        treeNeedsRender = true;
-        requestAnimationFrame(() => {
-          treeNeedsRender = false;
-          renderGalaxy();
-        });
-      }
-
-      function ensureTreeCanvasSize() {
-        const rect = treeCanvas.getBoundingClientRect();
-        const dpr = window.devicePixelRatio || 1;
-        const w = Math.max(1, Math.floor(rect.width * dpr));
-        const h = Math.max(1, Math.floor(rect.height * dpr));
-        if (treeCanvas.width !== w || treeCanvas.height !== h) {
-          treeCanvas.width = w;
-          treeCanvas.height = h;
-        }
-      }
-
-      function screenFromWorld(x, y) {
-        const dpr = window.devicePixelRatio || 1;
-        const cx = treeCanvas.width / 2;
-        const cy = treeCanvas.height / 2;
-        return {
-          x: (cx + (x + treeState.offsetX) * treeState.scale * dpr) / dpr,
-          y: (cy + (y + treeState.offsetY) * treeState.scale * dpr) / dpr,
-        };
-      }
-
-      function worldFromScreen(sx, sy) {
-        const dpr = window.devicePixelRatio || 1;
-        const cx = treeCanvas.width / 2 / dpr;
-        const cy = treeCanvas.height / 2 / dpr;
-        return {
-          x: (sx - cx) / treeState.scale - treeState.offsetX,
-          y: (sy - cy) / treeState.scale - treeState.offsetY,
-        };
-      }
-
-      function zoomTreeAt(mx, my, factor) {
-        const prev = treeState.scale;
-        const next = Math.max(0.18, Math.min(3.2, prev * factor));
-        if (next === prev) return;
-        const world = worldFromScreen(mx, my);
-        treeState.scale = next;
-        treeState.offsetX = (mx - treeCanvas.clientWidth / 2) / next - world.x;
-        treeState.offsetY = (my - treeCanvas.clientHeight / 2) / next - world.y;
-        requestTreeRender();
-      }
-
-      function getTreeImage(item) {
-        if (isVideo(item)) return null;
-        if (treeImageCache.has(item.path)) return treeImageCache.get(item.path);
-        const img = new Image();
-        img.loading = "lazy";
-        img.decoding = "async";
-        img.onload = () => requestTreeRender();
-        img.onerror = () => {};
-        img.src = item.path;
-        treeImageCache.set(item.path, img);
-        return img;
-      }
-
-      function drawGalaxyBackground(ctx, w, h) {
-        const grad = ctx.createRadialGradient(w * 0.52, h * 0.5, 20, w * 0.5, h * 0.5, Math.max(w, h) * 0.6);
-        grad.addColorStop(0, "rgba(255,120,45,0.15)");
-        grad.addColorStop(0.28, "rgba(105,145,255,0.09)");
-        grad.addColorStop(1, "rgba(3,4,10,0.98)");
-        ctx.fillStyle = grad;
-        ctx.fillRect(0, 0, w, h);
-      }
-
-      function renderGalaxy() {
-        if (treeOverlay.classList.contains("hidden")) return;
-        ensureTreeCanvasSize();
-        const dpr = window.devicePixelRatio || 1;
-        const w = treeCanvas.width / dpr;
-        const h = treeCanvas.height / dpr;
-        const ctx = treeCanvas.getContext("2d");
-        if (!ctx) return;
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        drawGalaxyBackground(ctx, w, h);
-
-        for (const p of treeState.points) {
-          const s = screenFromWorld(p.x, p.y);
-          if (s.x < -120 || s.y < -120 || s.x > w + 120 || s.y > h + 120) continue;
-          const dotR = Math.max(1.8, Math.min(7.4, treeState.scale * 2.8 + p.seed * 0.9));
-          const hue = p.video ? "177,210,255" : "255,201,145";
-          ctx.fillStyle = `rgba(${hue},${0.55 + p.seed * 0.2})`;
-          ctx.beginPath();
-          ctx.arc(s.x, s.y, dotR, 0, Math.PI * 2);
-          ctx.fill();
-
-          if (treeState.scale > 1.25) {
-            const size = Math.max(22, Math.min(88, 28 + treeState.scale * 16));
-            if (p.video) {
-              ctx.strokeStyle = "rgba(255,255,255,0.4)";
-              ctx.lineWidth = 1;
-              ctx.strokeRect(s.x - size / 2, s.y - size / 2, size, size * 0.62);
-              ctx.fillStyle = "rgba(255,255,255,0.75)";
-              ctx.beginPath();
-              ctx.moveTo(s.x - 4, s.y - 6);
-              ctx.lineTo(s.x + 7, s.y);
-              ctx.lineTo(s.x - 4, s.y + 6);
-              ctx.closePath();
-              ctx.fill();
-            } else {
-              const img = getTreeImage(p.item);
-              if (img && img.complete && img.naturalWidth > 0) {
-                ctx.save();
-                ctx.beginPath();
-                if (typeof ctx.roundRect === "function") {
-                  ctx.roundRect(s.x - size / 2, s.y - size / 2, size, size, 8);
-                } else {
-                  ctx.rect(s.x - size / 2, s.y - size / 2, size, size);
-                }
-                ctx.clip();
-                ctx.drawImage(img, s.x - size / 2, s.y - size / 2, size, size);
-                ctx.restore();
-              }
-            }
-          }
-        }
+      function loadDeletedMedia() {
+        try {
+          const raw = localStorage.getItem(STORAGE_DELETED_KEY);
+          if (!raw) return;
+          JSON.parse(raw).forEach((id) => deletedMediaIds.add(id));
+        } catch {}
       }
 
       function effectiveLabel(item) {
@@ -1320,19 +1176,33 @@
         timelapsePreview.appendChild(createMediaNode(files[idx]));
       }
 
-      function renderPhotoTree(files) {
-        const total = Math.max(1, files.length);
-        treeState.points = files.map((item, i) => {
-          const t = i / total;
-          const arm = i % 3;
-          const seed = (hashNum(item.name) % 1000) / 1000;
-          const angle = t * 26 + arm * 2.094 + seed * 0.9;
-          const radius = Math.pow(t, 0.62) * 980 + seed * 70;
-          const x = Math.cos(angle) * radius + (seed - 0.5) * 120;
-          const y = Math.sin(angle) * radius * 0.62 + ((seed * 13) % 1 - 0.5) * 100;
-          return { x, y, item, video: isVideo(item), seed };
+      function renderAllMemories(files) {
+        allMemoriesEl.innerHTML = "";
+        files.forEach((item) => {
+          const card = document.createElement("article");
+          card.className = "memory-card";
+          card.appendChild(createMediaNode(item));
+          const meta = document.createElement("div");
+          meta.className = "memory-meta";
+          const info = document.createElement("p");
+          info.textContent = `${formatDate(new Date(item.mtime))} - ${item.name}`;
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "danger-btn";
+          btn.textContent = "Aniyi Sil";
+          btn.addEventListener("click", () => {
+            const id = mediaId(item);
+            deletedMediaIds.add(id);
+            persistedLabels.delete(item.path);
+            labelOverrides.delete(item.path);
+            saveLabels();
+            saveDeletedMedia();
+            buildStory();
+          });
+          meta.append(info, btn);
+          card.appendChild(meta);
+          allMemoriesEl.appendChild(card);
         });
-        requestTreeRender();
       }
 
       function showRecap(files, monthGroups, dayDiff) {
@@ -1398,7 +1268,9 @@
         timelineBatchSize = window.matchMedia("(max-width: 640px)").matches ? 30 : 80;
 
         const allFiles = [...mediaLibrary, ...customMedia].sort((a, b) => a.mtime - b.mtime);
-        const cleanFiles = allFiles.filter((f) => isSupportedMedia(f) && !String(f.name || "").startsWith("."));
+        const cleanFiles = allFiles
+          .filter((f) => isSupportedMedia(f) && !String(f.name || "").startsWith("."))
+          .filter((f) => !deletedMediaIds.has(mediaId(f)));
         let files = cleanFiles.filter((f) => relationMonthIndex(start, new Date(f.mtime)) >= 0);
         // If date filtering removes everything, fall back to all media.
         if (!files.length && cleanFiles.length) files = cleanFiles;
@@ -1443,6 +1315,7 @@
 
         renderTimelineBatch(true);
         renderTimelapse(files);
+        renderAllMemories(cleanFiles);
 
         const dayDiff = Math.max(1, Math.floor((now - start) / (1000 * 60 * 60 * 24)) + 1);
         document.getElementById("finalNote").textContent = `${dayDiff} gun oldu. Devami bizim elimizde.`;
@@ -1466,6 +1339,7 @@
         appInitialized = true;
         await ensureMediaLibrary();
         loadLabels();
+        loadDeletedMedia();
         loadSettings();
         setControlsCollapsed(true);
         buildBtn.addEventListener("click", buildStory);
