@@ -244,19 +244,34 @@
         padding: 10px 12px;
         border-bottom: 1px solid var(--line);
       }
-      .tree-grid {
-        padding: 12px;
-        overflow: auto;
-        column-count: 3;
-        column-gap: 10px;
+      .tree-actions {
+        display: flex;
+        gap: 8px;
       }
-      .tree-node {
-        break-inside: avoid;
-        margin: 0 0 10px;
+      .tree-stage {
+        position: relative;
+        overflow: hidden;
+        background: radial-gradient(circle at 50% 45%, #15131d 0%, #090a0f 55%, #05060a 100%);
+      }
+      .tree-canvas {
+        width: 100%;
+        height: 100%;
+        display: block;
+        cursor: grab;
+      }
+      .tree-canvas.dragging {
+        cursor: grabbing;
+      }
+      .tree-hint {
+        position: absolute;
+        left: 10px;
+        bottom: 10px;
+        color: #b4b8cc;
+        font-size: 0.82rem;
+        background: rgba(10, 11, 18, 0.55);
         border: 1px solid var(--line);
         border-radius: 10px;
-        overflow: hidden;
-        background: #11111a;
+        padding: 6px 8px;
       }
 
       .chapters {
@@ -472,7 +487,7 @@
         }
         .hero-tools { justify-content: stretch; }
         .hero-tools > * { flex: 1 1 auto; width: 100%; }
-        .tree-grid { column-count: 2; }
+        .tree-hint { font-size: 0.76rem; }
       }
     </style>
   </head>
@@ -509,9 +524,16 @@
       <div class="tree-panel">
         <div class="tree-head">
           <b>Fotograf Agaci</b>
-          <button id="closeTreeBtn" type="button">Kapat</button>
+          <div class="tree-actions">
+            <button id="treeZoomOutBtn" type="button">-</button>
+            <button id="treeZoomInBtn" type="button">+</button>
+            <button id="closeTreeBtn" type="button">Kapat</button>
+          </div>
         </div>
-        <div class="tree-grid" id="treeGrid"></div>
+        <div class="tree-stage">
+          <canvas class="tree-canvas" id="treeCanvas"></canvas>
+          <div class="tree-hint">Tekerlek ile zoom, surukle ile pan. Yakinlasinca anilar görünür.</div>
+        </div>
       </div>
     </section>
 
@@ -605,8 +627,10 @@
       const recapCover = document.getElementById("recapCover");
       const closeRecapBtn = document.getElementById("closeRecapBtn");
       const treeOverlay = document.getElementById("treeOverlay");
-      const treeGrid = document.getElementById("treeGrid");
+      const treeCanvas = document.getElementById("treeCanvas");
       const closeTreeBtn = document.getElementById("closeTreeBtn");
+      const treeZoomInBtn = document.getElementById("treeZoomInBtn");
+      const treeZoomOutBtn = document.getElementById("treeZoomOutBtn");
 
       async function sha256(text) {
         const bytes = new TextEncoder().encode(text);
@@ -678,9 +702,20 @@
       let recapFrame = 0;
       let recapItems = [];
       let recapVideoNode = null;
+      let treeNeedsRender = false;
       const STORAGE_LABELS_KEY = "anniv_labels_v1";
       const STORAGE_CTRL_KEY = "anniv_controls_collapsed_v1";
       const STORAGE_SETTINGS_KEY = "anniv_settings_v1";
+      const treeState = {
+        points: [],
+        scale: 0.35,
+        offsetX: 0,
+        offsetY: 0,
+        dragging: false,
+        dragX: 0,
+        dragY: 0,
+      };
+      const treeImageCache = new Map();
 
       const monthPrompts = [
         "Baslangicta her sey biraz heyecandi.",
@@ -839,6 +874,141 @@
         const key = mediaKey(item);
         const all = [...mediaLibrary, ...customMedia];
         return all.some((m) => mediaKey(m) === key || String(m.name || "").toLowerCase() === String(item.name || "").toLowerCase());
+      }
+
+      function hashNum(text) {
+        let h = 2166136261;
+        for (let i = 0; i < text.length; i += 1) {
+          h ^= text.charCodeAt(i);
+          h += (h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24);
+        }
+        return Math.abs(h >>> 0);
+      }
+
+      function requestTreeRender() {
+        if (treeNeedsRender) return;
+        treeNeedsRender = true;
+        requestAnimationFrame(() => {
+          treeNeedsRender = false;
+          renderGalaxy();
+        });
+      }
+
+      function ensureTreeCanvasSize() {
+        const rect = treeCanvas.getBoundingClientRect();
+        const dpr = window.devicePixelRatio || 1;
+        const w = Math.max(1, Math.floor(rect.width * dpr));
+        const h = Math.max(1, Math.floor(rect.height * dpr));
+        if (treeCanvas.width !== w || treeCanvas.height !== h) {
+          treeCanvas.width = w;
+          treeCanvas.height = h;
+        }
+      }
+
+      function screenFromWorld(x, y) {
+        const dpr = window.devicePixelRatio || 1;
+        const cx = treeCanvas.width / 2;
+        const cy = treeCanvas.height / 2;
+        return {
+          x: (cx + (x + treeState.offsetX) * treeState.scale * dpr) / dpr,
+          y: (cy + (y + treeState.offsetY) * treeState.scale * dpr) / dpr,
+        };
+      }
+
+      function worldFromScreen(sx, sy) {
+        const dpr = window.devicePixelRatio || 1;
+        const cx = treeCanvas.width / 2 / dpr;
+        const cy = treeCanvas.height / 2 / dpr;
+        return {
+          x: (sx - cx) / treeState.scale - treeState.offsetX,
+          y: (sy - cy) / treeState.scale - treeState.offsetY,
+        };
+      }
+
+      function zoomTreeAt(mx, my, factor) {
+        const prev = treeState.scale;
+        const next = Math.max(0.18, Math.min(3.2, prev * factor));
+        if (next === prev) return;
+        const world = worldFromScreen(mx, my);
+        treeState.scale = next;
+        treeState.offsetX = (mx - treeCanvas.clientWidth / 2) / next - world.x;
+        treeState.offsetY = (my - treeCanvas.clientHeight / 2) / next - world.y;
+        requestTreeRender();
+      }
+
+      function getTreeImage(item) {
+        if (isVideo(item)) return null;
+        if (treeImageCache.has(item.path)) return treeImageCache.get(item.path);
+        const img = new Image();
+        img.loading = "lazy";
+        img.decoding = "async";
+        img.onload = () => requestTreeRender();
+        img.onerror = () => {};
+        img.src = item.path;
+        treeImageCache.set(item.path, img);
+        return img;
+      }
+
+      function drawGalaxyBackground(ctx, w, h) {
+        const grad = ctx.createRadialGradient(w * 0.52, h * 0.5, 20, w * 0.5, h * 0.5, Math.max(w, h) * 0.6);
+        grad.addColorStop(0, "rgba(255,120,45,0.15)");
+        grad.addColorStop(0.28, "rgba(105,145,255,0.09)");
+        grad.addColorStop(1, "rgba(3,4,10,0.98)");
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, w, h);
+      }
+
+      function renderGalaxy() {
+        if (treeOverlay.classList.contains("hidden")) return;
+        ensureTreeCanvasSize();
+        const dpr = window.devicePixelRatio || 1;
+        const w = treeCanvas.width / dpr;
+        const h = treeCanvas.height / dpr;
+        const ctx = treeCanvas.getContext("2d");
+        if (!ctx) return;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        drawGalaxyBackground(ctx, w, h);
+
+        for (const p of treeState.points) {
+          const s = screenFromWorld(p.x, p.y);
+          if (s.x < -120 || s.y < -120 || s.x > w + 120 || s.y > h + 120) continue;
+          const dotR = Math.max(1.2, Math.min(6, treeState.scale * 2.4 + p.seed * 0.6));
+          const hue = p.video ? "177,210,255" : "255,201,145";
+          ctx.fillStyle = `rgba(${hue},${0.55 + p.seed * 0.2})`;
+          ctx.beginPath();
+          ctx.arc(s.x, s.y, dotR, 0, Math.PI * 2);
+          ctx.fill();
+
+          if (treeState.scale > 1.25) {
+            const size = Math.max(22, Math.min(88, 28 + treeState.scale * 16));
+            if (p.video) {
+              ctx.strokeStyle = "rgba(255,255,255,0.4)";
+              ctx.lineWidth = 1;
+              ctx.strokeRect(s.x - size / 2, s.y - size / 2, size, size * 0.62);
+              ctx.fillStyle = "rgba(255,255,255,0.75)";
+              ctx.beginPath();
+              ctx.moveTo(s.x - 4, s.y - 6);
+              ctx.lineTo(s.x + 7, s.y);
+              ctx.lineTo(s.x - 4, s.y + 6);
+              ctx.closePath();
+              ctx.fill();
+            } else {
+              const img = getTreeImage(p.item);
+              if (img && img.complete && img.naturalWidth > 0) {
+                ctx.save();
+                ctx.beginPath();
+                if (typeof ctx.roundRect === "function") {
+                  ctx.roundRect(s.x - size / 2, s.y - size / 2, size, size, 8);
+                } else {
+                  ctx.rect(s.x - size / 2, s.y - size / 2, size, size);
+                }
+                ctx.clip();
+                ctx.drawImage(img, s.x - size / 2, s.y - size / 2, size, size);
+                ctx.restore();
+              }
+            }
+          }
+        }
       }
 
       function effectiveLabel(item) {
@@ -1175,14 +1345,18 @@
       }
 
       function renderPhotoTree(files) {
-        treeGrid.innerHTML = "";
-        const images = files.filter((f) => !isVideo(f));
-        images.forEach((item) => {
-          const node = document.createElement("article");
-          node.className = "tree-node";
-          node.appendChild(createMediaNode(item));
-          treeGrid.appendChild(node);
+        const total = Math.max(1, files.length);
+        treeState.points = files.map((item, i) => {
+          const t = i / total;
+          const arm = i % 3;
+          const seed = (hashNum(item.name) % 1000) / 1000;
+          const angle = t * 26 + arm * 2.094 + seed * 0.9;
+          const radius = Math.pow(t, 0.62) * 980 + seed * 70;
+          const x = Math.cos(angle) * radius + (seed - 0.5) * 120;
+          const y = Math.sin(angle) * radius * 0.62 + ((seed * 13) % 1 - 0.5) * 100;
+          return { x, y, item, video: isVideo(item), seed };
         });
+        requestTreeRender();
       }
 
       function showRecap(files, monthGroups, dayDiff) {
@@ -1353,8 +1527,41 @@
           saveSettings();
           buildStory();
         });
-        photoTreeBtn.addEventListener("click", () => treeOverlay.classList.remove("hidden"));
+        photoTreeBtn.addEventListener("click", () => {
+          treeOverlay.classList.remove("hidden");
+          requestTreeRender();
+        });
         closeTreeBtn.addEventListener("click", () => treeOverlay.classList.add("hidden"));
+        treeZoomInBtn.addEventListener("click", () => zoomTreeAt(treeCanvas.clientWidth / 2, treeCanvas.clientHeight / 2, 1.2));
+        treeZoomOutBtn.addEventListener("click", () => zoomTreeAt(treeCanvas.clientWidth / 2, treeCanvas.clientHeight / 2, 0.82));
+        window.addEventListener("resize", requestTreeRender);
+        treeCanvas.addEventListener("wheel", (e) => {
+          e.preventDefault();
+          const rect = treeCanvas.getBoundingClientRect();
+          const mx = e.clientX - rect.left;
+          const my = e.clientY - rect.top;
+          zoomTreeAt(mx, my, e.deltaY < 0 ? 1.1 : 0.9);
+        }, { passive: false });
+        treeCanvas.addEventListener("mousedown", (e) => {
+          treeState.dragging = true;
+          treeState.dragX = e.clientX;
+          treeState.dragY = e.clientY;
+          treeCanvas.classList.add("dragging");
+        });
+        window.addEventListener("mouseup", () => {
+          treeState.dragging = false;
+          treeCanvas.classList.remove("dragging");
+        });
+        window.addEventListener("mousemove", (e) => {
+          if (!treeState.dragging) return;
+          const dx = e.clientX - treeState.dragX;
+          const dy = e.clientY - treeState.dragY;
+          treeState.dragX = e.clientX;
+          treeState.dragY = e.clientY;
+          treeState.offsetX += dx / treeState.scale;
+          treeState.offsetY += dy / treeState.scale;
+          requestTreeRender();
+        });
         timelapseRange.addEventListener("input", () => renderTimelapse(storyFiles));
         [nameInput, partnerNameInput, startDateInput].forEach((el) =>
           el.addEventListener("change", () => {
