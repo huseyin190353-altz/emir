@@ -470,7 +470,7 @@
       const autoTagStatus = document.getElementById("autoTagStatus");
       const loadMoreBtn = document.getElementById("loadMoreBtn");
       const monthSummaryEl = document.getElementById("monthSummary");
-      const mediaLibrary = Array.isArray(window.MEDIA_MANIFEST) ? window.MEDIA_MANIFEST : [];
+      let mediaLibrary = Array.isArray(window.MEDIA_MANIFEST) ? window.MEDIA_MANIFEST : [];
       const labelOverrides = new Map();
       const autoLabels = new Map();
       let faceModelsLoaded = false;
@@ -885,9 +885,10 @@
         currentStart = start;
         timelineBatchSize = window.matchMedia("(max-width: 640px)").matches ? 30 : 80;
 
-        const files = [...mediaLibrary]
-          .sort((a, b) => a.mtime - b.mtime)
-          .filter((f) => relationMonthIndex(start, new Date(f.mtime)) >= 0);
+        const allFiles = [...mediaLibrary].sort((a, b) => a.mtime - b.mtime);
+        let files = allFiles.filter((f) => relationMonthIndex(start, new Date(f.mtime)) >= 0);
+        // If date filtering removes everything, fall back to all media.
+        if (!files.length && allFiles.length) files = allFiles;
         storyFiles = files;
 
         const relationshipName = nameInput.value.trim();
@@ -932,9 +933,22 @@
         document.getElementById("finalNote").textContent = `${dayDiff} gun oldu. Devami bizim elimizde.`;
       }
 
-      function initApp() {
+      async function ensureMediaLibrary() {
+        if (Array.isArray(mediaLibrary) && mediaLibrary.length) return;
+        try {
+          const res = await fetch("media-manifest.json", { cache: "no-store" });
+          if (!res.ok) return;
+          const json = await res.json();
+          if (Array.isArray(json) && json.length) mediaLibrary = json;
+        } catch {
+          // keep existing state
+        }
+      }
+
+      async function initApp() {
         if (appInitialized) return;
         appInitialized = true;
+        await ensureMediaLibrary();
         buildBtn.addEventListener("click", buildStory);
         autoTagBtn.addEventListener("click", autoTagMedia);
         loadMoreBtn.addEventListener("click", () => renderTimelineBatch(false));
