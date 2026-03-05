@@ -80,6 +80,10 @@
         justify-content: flex-end;
         gap: 8px;
       }
+      .tab-btn.active {
+        background: linear-gradient(120deg, #ff5f7e, var(--accent));
+        color: #fff;
+      }
 
       .title {
         margin: 0;
@@ -317,6 +321,10 @@
         color: var(--muted);
         line-height: 1.45;
       }
+      .note-text:empty::before {
+        content: "Not eklemek icin tikla...";
+        color: #8f91a1;
+      }
 
       .media {
         width: 100%;
@@ -502,6 +510,8 @@
         <h1 class="title" id="heroTitle">90 Gun, Hala Sen</h1>
         <p class="subtitle">3 ayimizi hatirlatan mini web hikayesi</p>
         <div class="hero-tools">
+          <button class="ghost-btn tab-btn active" id="tabStoryBtn" type="button">Hikaye</button>
+          <button class="ghost-btn tab-btn" id="tabMemoriesBtn" type="button">Tum Anilar</button>
           <button class="ghost-btn" id="settingsBtn" type="button">Ayarlari Gizle</button>
           <select id="viewFilter">
             <option value="all">Filtre: Hepsi</option>
@@ -513,7 +523,7 @@
         </div>
       </header>
 
-      <section class="controls">
+      <section class="controls story-section">
         <div id="controlsBody">
           <div class="row">
             <input id="nameInput" type="text" placeholder="Baslik (or: Huseyin + ... )" />
@@ -540,10 +550,10 @@
         </div>
       </section>
 
-      <section>
+      <section class="story-section">
         <div class="chapters" id="chapters"></div>
       </section>
-      <section class="timelapse">
+      <section class="timelapse story-section">
         <div class="timelapse-head">
           <span>Timelapse</span>
           <span id="timelapseLabel">0/0</span>
@@ -551,17 +561,17 @@
         <input id="timelapseRange" type="range" min="0" max="0" value="0" />
         <div class="timelapse-preview" id="timelapsePreview"></div>
       </section>
-      <section class="memories">
+      <section class="memories hidden" id="memoriesSection">
         <h2>Tum Anilar</h2>
         <div class="memories-grid" id="allMemories"></div>
       </section>
 
-      <section class="summary-section">
+      <section class="summary-section story-section">
         <h2>Ilk 3 Ay Ozeti</h2>
         <div class="summary-grid" id="monthSummary"></div>
       </section>
 
-      <section class="timeline">
+      <section class="timeline story-section">
         <h2>Zaman Cizgimiz</h2>
         <div class="timeline-list" id="timeline"></div>
         <div class="timeline-actions">
@@ -569,7 +579,7 @@
         </div>
       </section>
 
-      <div class="final-note" id="finalNote">Devami bizim elimizde.</div>
+      <div class="final-note story-section" id="finalNote">Devami bizim elimizde.</div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.14/dist/face-api.min.js"></script>
@@ -624,8 +634,12 @@
       const autoTagBtn = document.getElementById("autoTagBtn");
       const extraMediaInput = document.getElementById("extraMediaInput");
       const settingsBtn = document.getElementById("settingsBtn");
+      const tabStoryBtn = document.getElementById("tabStoryBtn");
+      const tabMemoriesBtn = document.getElementById("tabMemoriesBtn");
       const viewFilter = document.getElementById("viewFilter");
       const controlsBody = document.getElementById("controlsBody");
+      const storySections = [...document.querySelectorAll(".story-section")];
+      const memoriesSection = document.getElementById("memoriesSection");
       const chaptersEl = document.getElementById("chapters");
       const timelineEl = document.getElementById("timeline");
       const nameInput = document.getElementById("nameInput");
@@ -728,6 +742,7 @@
             partner: partnerNameInput.value || "",
             start: startDateInput.value || "2025-12-05",
             filter: viewFilter.value || "all",
+            tab: tabMemoriesBtn.classList.contains("active") ? "memories" : "story",
           };
           localStorage.setItem(STORAGE_SETTINGS_KEY, JSON.stringify(s));
         } catch {}
@@ -742,30 +757,29 @@
           if (typeof s.partner === "string") partnerNameInput.value = s.partner;
           if (typeof s.start === "string" && s.start) startDateInput.value = s.start;
           if (typeof s.filter === "string" && s.filter) viewFilter.value = s.filter;
+          if (s.tab === "memories") setActiveTab("memories");
         } catch {}
+      }
+
+      function setActiveTab(tab) {
+        const memories = tab === "memories";
+        memoriesSection.classList.toggle("hidden", !memories);
+        storySections.forEach((el) => el.classList.toggle("hidden", memories));
+        tabStoryBtn.classList.toggle("active", !memories);
+        tabMemoriesBtn.classList.toggle("active", memories);
       }
 
       function inferText(item, index, chapterIndex = null, who = "ikimiz", partnerName = "Emir") {
         const base = item.name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ");
         const peopleMap = {
-          ben: "Bu anda bendeki his su:",
-          o: `${partnerName} bu anda aklimda tek kisiydi:`,
-          ikimiz: "Bu an ikimizin hikayesine ait:",
-          belirsiz: "Bu an bizim hikayemizin parcasi:",
+          ben: "Huseyin",
+          o: partnerName,
+          ikimiz: "Ikimiz",
+          belirsiz: "An",
         };
-        const whoText = peopleMap[who] || peopleMap.belirsiz;
-
-        if (chapterIndex !== null) {
-          const prompt = monthPrompts[Math.min(chapterIndex, monthPrompts.length - 1)];
-          return `${prompt} ${whoText} (${base})`;
-        }
-        const variants = [
-          "Bugunu saklamak istedim.",
-          "Bu ani gulumsetiyor.",
-          "Kucuk ama unutulmaz bir kare.",
-          "Bu an, hikayemizin parcasi.",
-        ];
-        return `${variants[index % variants.length]} ${whoText} (${base})`;
+        const whoText = peopleMap[who] || "An";
+        const stamp = formatDate(new Date(item.mtime));
+        return `${whoText} - ${stamp}`;
       }
 
       function makeWhoSelector(initialValue, onChange) {
@@ -861,6 +875,7 @@
 
         const initialWho = effectiveLabel(item);
         const text = document.createElement("p");
+        text.className = "note-text";
         text.textContent = inferText(item, chapterIndex, chapterIndex, initialWho, partnerName);
         text.contentEditable = "true";
 
@@ -890,6 +905,7 @@
 
         const initialWho = effectiveLabel(item);
         const text = document.createElement("p");
+        text.className = "note-text";
         text.textContent = inferText(item, index, null, initialWho, partnerName);
         text.contentEditable = "true";
 
@@ -1367,6 +1383,14 @@
           buildStory();
         });
         settingsBtn.addEventListener("click", () => setControlsCollapsed(!controlsBody.classList.contains("hidden")));
+        tabStoryBtn.addEventListener("click", () => {
+          setActiveTab("story");
+          saveSettings();
+        });
+        tabMemoriesBtn.addEventListener("click", () => {
+          setActiveTab("memories");
+          saveSettings();
+        });
         closeRecapBtn.addEventListener("click", () => {
           recapOverlay.classList.add("hidden");
           stopRecapPlayback();
