@@ -148,10 +148,6 @@
         font-size: 0.86rem;
       }
 
-      .panel-toggle {
-        margin-top: 8px;
-      }
-
       .recap-overlay {
         position: fixed;
         inset: 0;
@@ -331,8 +327,9 @@
 
       .media {
         width: 100%;
-        aspect-ratio: 4 / 3;
-        object-fit: cover;
+        height: auto;
+        max-height: 72vh;
+        object-fit: contain;
         display: block;
         background: #0e0e13;
       }
@@ -523,6 +520,7 @@
         <h1 class="title" id="heroTitle">90 Gun, Hala Sen</h1>
         <p class="subtitle">3 ayimizi hatirlatan mini web hikayesi</p>
         <div class="hero-tools">
+          <button class="ghost-btn" id="settingsBtn" type="button">Ayarlari Gizle</button>
           <select id="viewFilter">
             <option value="all">Filtre: Hepsi</option>
             <option value="ikimiz">Sadece Ikimiz</option>
@@ -535,9 +533,6 @@
       </header>
 
       <section class="controls">
-        <div class="row panel-toggle">
-          <button class="ghost-btn" id="toggleControlsBtn" type="button">Ayarlari Gizle</button>
-        </div>
         <div id="controlsBody">
           <div class="row">
             <input id="nameInput" type="text" placeholder="Baslik (or: Huseyin + ... )" />
@@ -646,7 +641,7 @@
       const buildBtn = document.getElementById("buildBtn");
       const autoTagBtn = document.getElementById("autoTagBtn");
       const extraMediaInput = document.getElementById("extraMediaInput");
-      const toggleControlsBtn = document.getElementById("toggleControlsBtn");
+      const settingsBtn = document.getElementById("settingsBtn");
       const viewFilter = document.getElementById("viewFilter");
       const photoTreeBtn = document.getElementById("photoTreeBtn");
       const controlsBody = document.getElementById("controlsBody");
@@ -681,6 +676,8 @@
       let currentStart = new Date("2025-12-05T00:00:00");
       let recapTimer = null;
       let recapFrame = 0;
+      let recapItems = [];
+      let recapVideoNode = null;
       const STORAGE_LABELS_KEY = "anniv_labels_v1";
       const STORAGE_CTRL_KEY = "anniv_controls_collapsed_v1";
       const STORAGE_SETTINGS_KEY = "anniv_settings_v1";
@@ -826,10 +823,22 @@
 
       function setControlsCollapsed(collapsed) {
         controlsBody.classList.toggle("hidden", collapsed);
-        toggleControlsBtn.textContent = collapsed ? "Ayarlari Goster" : "Ayarlari Gizle";
+        settingsBtn.textContent = collapsed ? "Ayarlari Goster" : "Ayarlari Gizle";
         try {
           localStorage.setItem(STORAGE_CTRL_KEY, collapsed ? "1" : "0");
         } catch {}
+      }
+
+      function mediaKey(item) {
+        const name = String(item.name || "").toLowerCase();
+        const size = Number(item.size || 0);
+        return `${name}::${size}`;
+      }
+
+      function mediaExists(item) {
+        const key = mediaKey(item);
+        const all = [...mediaLibrary, ...customMedia];
+        return all.some((m) => mediaKey(m) === key || String(m.name || "").toLowerCase() === String(item.name || "").toLowerCase());
       }
 
       function effectiveLabel(item) {
@@ -1186,18 +1195,45 @@
         recapMonthCount.textContent = String(monthGroups.size);
         recapTogetherCount.textContent = String(togetherCount);
         recapCover.innerHTML = "";
-        const recapItems = files.slice(0, Math.min(8, files.length));
-        if (recapItems[0]) recapCover.appendChild(createMediaNode(recapItems[0]));
-        if (recapTimer) clearInterval(recapTimer);
-        if (recapItems.length > 1) {
-          recapFrame = 0;
-          recapTimer = setInterval(() => {
-            recapFrame = (recapFrame + 1) % recapItems.length;
-            recapCover.innerHTML = "";
-            recapCover.appendChild(createMediaNode(recapItems[recapFrame]));
-          }, 1400);
-        }
+        recapItems = files.slice(0, Math.min(8, files.length));
+        recapFrame = 0;
+        playRecapFrame();
         recapOverlay.classList.remove("hidden");
+      }
+
+      function stopRecapPlayback() {
+        if (recapTimer) clearTimeout(recapTimer);
+        recapTimer = null;
+        if (recapVideoNode) {
+          recapVideoNode.pause();
+          recapVideoNode = null;
+        }
+      }
+
+      function playRecapFrame() {
+        stopRecapPlayback();
+        if (!recapItems.length) return;
+        const item = recapItems[recapFrame];
+        recapCover.innerHTML = "";
+        const node = createMediaNode(item);
+        recapCover.appendChild(node);
+
+        const next = () => {
+          recapFrame = (recapFrame + 1) % recapItems.length;
+          playRecapFrame();
+        };
+
+        if (node.tagName === "VIDEO") {
+          recapVideoNode = node;
+          node.muted = true;
+          node.autoplay = true;
+          node.loop = false;
+          node.play().catch(() => {});
+          node.addEventListener("ended", next, { once: true });
+          recapTimer = setTimeout(next, 12000);
+        } else {
+          recapTimer = setTimeout(next, 1800);
+        }
       }
 
       function buildStory() {
@@ -1287,23 +1323,31 @@
         buildBtn.addEventListener("click", buildStory);
         autoTagBtn.addEventListener("click", autoTagMedia);
         extraMediaInput.addEventListener("change", () => {
-          const list = [...extraMediaInput.files].map((file) => {
+          const added = [];
+          const skipped = [];
+          [...extraMediaInput.files].forEach((file) => {
             const ext = `.${(file.name.split(".").pop() || "").toLowerCase()}`;
-            return {
+            const item = {
               path: URL.createObjectURL(file),
               name: file.name,
               ext,
               mtime: file.lastModified || Date.now(),
               ctime: file.lastModified || Date.now(),
+              size: file.size || 0,
             };
+            if (mediaExists(item)) skipped.push(file.name);
+            else added.push(item);
           });
-          customMedia = [...customMedia, ...list];
+          customMedia = [...customMedia, ...added];
+          if (added.length || skipped.length) {
+            autoTagStatus.textContent = `${added.length} yeni medya eklendi, ${skipped.length} zaten vardi.`;
+          }
           buildStory();
         });
-        toggleControlsBtn.addEventListener("click", () => setControlsCollapsed(!controlsBody.classList.contains("hidden")));
+        settingsBtn.addEventListener("click", () => setControlsCollapsed(!controlsBody.classList.contains("hidden")));
         closeRecapBtn.addEventListener("click", () => {
           recapOverlay.classList.add("hidden");
-          if (recapTimer) clearInterval(recapTimer);
+          stopRecapPlayback();
         });
         viewFilter.addEventListener("change", () => {
           saveSettings();
