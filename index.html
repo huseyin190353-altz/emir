@@ -157,62 +157,50 @@
         font-size: 0.86rem;
       }
 
-      .recap-overlay {
+      .intro-overlay {
         position: fixed;
         inset: 0;
-        background: rgba(5, 6, 10, 0.88);
-        backdrop-filter: blur(6px);
+        background: #05060c;
         z-index: 20;
+        overflow: hidden;
+      }
+      .intro-bg-layer {
+        position: absolute;
+        inset: 0;
+        background-position: center;
+        background-repeat: no-repeat;
+        background-size: cover;
+        opacity: 0;
+        transition: opacity 0.9s ease;
+      }
+      .intro-bg-layer.active {
+        opacity: 1;
+      }
+      .intro-dim {
+        position: absolute;
+        inset: 0;
+        background: radial-gradient(circle at 50% 35%, rgba(10, 16, 40, 0.2), rgba(5, 6, 12, 0.8) 68%, rgba(2, 3, 8, 0.95));
+      }
+      .intro-content {
+        position: relative;
+        z-index: 2;
+        min-height: 100dvh;
         display: grid;
         place-items: center;
-        padding: 16px;
+        text-align: center;
+        padding: 24px;
       }
-
-      .recap-card {
-        width: min(760px, 94vw);
-        border: 1px solid var(--line);
-        border-radius: 18px;
-        background: linear-gradient(160deg, #171722 0%, #0d0d14 100%);
-        padding: 16px;
+      .intro-copy h2 {
+        margin: 0;
+        font-size: clamp(2rem, 6vw, 4.2rem);
       }
-
-      .recap-card h2 {
-        margin: 0 0 8px;
+      .intro-copy p {
+        margin: 10px 0 22px;
+        color: #d8d8e0;
+        font-size: clamp(0.95rem, 2.2vw, 1.2rem);
       }
-
-      .recap-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-        gap: 10px;
-        margin: 10px 0 14px;
-      }
-
-      .recap-stat {
-        border: 1px solid var(--line);
-        border-radius: 12px;
-        padding: 10px;
-        background: rgba(255, 255, 255, 0.02);
-      }
-
-      .recap-stat b {
-        display: block;
-        font-size: 1.2rem;
-      }
-
-      .recap-cover {
-        border-radius: 12px;
-        overflow: hidden;
-        border: 1px solid var(--line);
-      }
-
-      .recap-cover .media {
-        aspect-ratio: 16 / 7;
-      }
-
-      .recap-actions {
-        display: flex;
-        justify-content: flex-end;
-        margin-top: 12px;
+      .intro-continue-btn {
+        min-width: 200px;
       }
       .timeline-bar {
         margin: 0 0 12px;
@@ -557,19 +545,15 @@
       </div>
     </section>
 
-    <section class="recap-overlay hidden" id="recapOverlay">
-      <div class="recap-card">
-        <h2>Hikaye Ozeti</h2>
-        <p class="subtitle" id="recapTitle">Bu bolumde kisa bir ozet goreceksin.</p>
-        <div class="recap-grid">
-          <div class="recap-stat"><b id="recapMediaCount">0</b>Medya</div>
-          <div class="recap-stat"><b id="recapDayCount">0</b>Gun</div>
-          <div class="recap-stat"><b id="recapMonthCount">0</b>Aylik bolum</div>
-          <div class="recap-stat"><b id="recapTogetherCount">0</b>Ikiniz etiketi</div>
-        </div>
-        <div class="recap-cover" id="recapCover"></div>
-        <div class="recap-actions">
-          <button id="closeRecapBtn" type="button">Hikayeye Gir</button>
+    <section class="intro-overlay hidden" id="introOverlay">
+      <div class="intro-bg-layer active" id="introBgA"></div>
+      <div class="intro-bg-layer" id="introBgB"></div>
+      <div class="intro-dim"></div>
+      <div class="intro-content">
+        <div class="intro-copy">
+          <h2>Her sey icin tesekkurler</h2>
+          <p>Daha nice anilara</p>
+          <button id="continueStoryBtn" class="intro-continue-btn" type="button">Hikayeye Devam Et</button>
         </div>
       </div>
     </section>
@@ -684,14 +668,10 @@
       const passwordInput = document.getElementById("passwordInput");
       const lockError = document.getElementById("lockError");
       const appRoot = document.getElementById("appRoot");
-      const recapOverlay = document.getElementById("recapOverlay");
-      const recapTitle = document.getElementById("recapTitle");
-      const recapMediaCount = document.getElementById("recapMediaCount");
-      const recapDayCount = document.getElementById("recapDayCount");
-      const recapMonthCount = document.getElementById("recapMonthCount");
-      const recapTogetherCount = document.getElementById("recapTogetherCount");
-      const recapCover = document.getElementById("recapCover");
-      const closeRecapBtn = document.getElementById("closeRecapBtn");
+      const introOverlay = document.getElementById("introOverlay");
+      const introBgA = document.getElementById("introBgA");
+      const introBgB = document.getElementById("introBgB");
+      const continueStoryBtn = document.getElementById("continueStoryBtn");
       const deleteOverlay = document.getElementById("deleteOverlay");
       const deletePreview = document.getElementById("deletePreview");
       const deleteMeta = document.getElementById("deleteMeta");
@@ -766,18 +746,17 @@
       const autoLabels = new Map();
       let faceModelsLoaded = false;
       let appInitialized = false;
-      let recapShown = false;
+      let introShown = false;
       let storyFiles = [];
       let timelineQueue = [];
       let timelineRenderedCount = 0;
       let timelineBatchSize = window.matchMedia("(max-width: 640px)").matches ? 30 : 80;
       let currentPartnerName = "Emir";
       let currentStart = new Date("2025-12-05T00:00:00");
-      let recapTimer = null;
-      let recapFrame = 0;
-      let recapItems = [];
-      let recapSlideMeta = [];
-      let recapVideoNode = null;
+      let introTimer = null;
+      let introFrame = 0;
+      let introPhotos = [];
+      let introUseA = true;
       let pendingDeleteItem = null;
       let wrappedSlides = [];
       let wrappedIndex = 0;
@@ -1436,61 +1415,38 @@
         });
       }
 
-      function showRecap(files, monthGroups, dayDiff) {
-        if (recapShown) return;
-        recapShown = true;
-        const togetherCount = files.filter((f) => effectiveLabel(f) === "ikimiz").length;
-        recapTitle.textContent = `Ilk 3 Ay Wrapped`;
-        recapMediaCount.textContent = String(files.length);
-        recapDayCount.textContent = String(dayDiff);
-        recapMonthCount.textContent = "3";
-        recapTogetherCount.textContent = String(togetherCount);
-        recapCover.innerHTML = "";
-        recapSlideMeta = wrappedSlides
-          .map((s) => ({ media: s.media, title: `${s.monthNo}. Ay`, text: s.text }))
-          .filter((s) => Boolean(s.media));
-        recapItems = recapSlideMeta.map((s) => s.media);
-        recapFrame = 0;
-        playRecapFrame();
-        recapOverlay.classList.remove("hidden");
+      function stopIntroPlayback() {
+        if (introTimer) clearTimeout(introTimer);
+        introTimer = null;
       }
 
-      function stopRecapPlayback() {
-        if (recapTimer) clearTimeout(recapTimer);
-        recapTimer = null;
-        if (recapVideoNode) {
-          recapVideoNode.pause();
-          recapVideoNode = null;
-        }
+      function renderIntroFrame() {
+        if (!introPhotos.length) return;
+        const active = introUseA ? introBgA : introBgB;
+        const passive = introUseA ? introBgB : introBgA;
+        const item = introPhotos[introFrame];
+        const src = String(item.path || "");
+        active.style.backgroundImage = `url("${src.replace(/"/g, '\\"')}")`;
+        active.classList.add("active");
+        passive.classList.remove("active");
+        introUseA = !introUseA;
+        introFrame = (introFrame + 1) % introPhotos.length;
+        stopIntroPlayback();
+        introTimer = setTimeout(renderIntroFrame, 1700);
       }
 
-      function playRecapFrame() {
-        stopRecapPlayback();
-        if (!recapItems.length) return;
-        const item = recapItems[recapFrame];
-        if (recapSlideMeta[recapFrame]) {
-          recapTitle.textContent = `${recapSlideMeta[recapFrame].title} - ${recapSlideMeta[recapFrame].text}`;
-        }
-        recapCover.innerHTML = "";
-        const node = createMediaNode(item);
-        recapCover.appendChild(node);
-
-        const next = () => {
-          recapFrame = (recapFrame + 1) % recapItems.length;
-          playRecapFrame();
-        };
-
-        if (node.tagName === "VIDEO") {
-          recapVideoNode = node;
-          node.muted = true;
-          node.autoplay = true;
-          node.loop = false;
-          node.play().catch(() => {});
-          node.addEventListener("ended", next, { once: true });
-          recapTimer = setTimeout(next, 12000);
-        } else {
-          recapTimer = setTimeout(next, 1800);
-        }
+      function showIntro(allFiles) {
+        if (introShown) return;
+        introShown = true;
+        introPhotos = (allFiles || []).filter((f) => !isVideo(f));
+        introFrame = 0;
+        introUseA = true;
+        introBgA.style.backgroundImage = "";
+        introBgB.style.backgroundImage = "";
+        introBgA.classList.add("active");
+        introBgB.classList.remove("active");
+        if (introPhotos.length) renderIntroFrame();
+        introOverlay.classList.remove("hidden");
       }
 
       function buildStory() {
@@ -1567,7 +1523,7 @@
 
         const dayDiff = Math.max(1, Math.floor((now - start) / (1000 * 60 * 60 * 24)) + 1);
         document.getElementById("finalNote").textContent = `${dayDiff} gun oldu. Devami bizim elimizde.`;
-        showRecap(files, monthGroups, dayDiff);
+        showIntro(cleanFiles);
       }
 
       async function ensureMediaLibrary() {
@@ -1635,9 +1591,9 @@
           setActiveTab("memories");
           saveSettings();
         });
-        closeRecapBtn.addEventListener("click", () => {
-          recapOverlay.classList.add("hidden");
-          stopRecapPlayback();
+        continueStoryBtn.addEventListener("click", () => {
+          introOverlay.classList.add("hidden");
+          stopIntroPlayback();
         });
         wrappedPrevBtn.addEventListener("click", () => gotoWrapped(wrappedIndex - 1));
         wrappedNextBtn.addEventListener("click", () => gotoWrapped(wrappedIndex + 1));
@@ -1693,7 +1649,7 @@
       }
       window.addEventListener("beforeunload", () => {
         stopWrapped();
-        stopRecapPlayback();
+        stopIntroPlayback();
       });
     </script>
   </body>
